@@ -20,6 +20,16 @@ interface HistoryItem {
   rotation: number;
 }
 
+interface RotatedPiece {
+  id: string;
+  imageData: string;
+  width: number;
+  height: number;
+  x: number;
+  y: number;
+  rotation: number;
+}
+
 export default function Index() {
   const [image, setImage] = useState<string | null>(null);
   const [selection, setSelection] = useState<Selection | null>(null);
@@ -27,7 +37,10 @@ export default function Index() {
   const [startPoint, setStartPoint] = useState({ x: 0, y: 0 });
   const [rotation, setRotation] = useState(0);
   const [history, setHistory] = useState<HistoryItem[]>([]);
-  const [tool, setTool] = useState<'select' | 'rotate'>('select');
+  const [tool, setTool] = useState<'select' | 'rotate' | 'place'>('select');
+  const [rotatedPiece, setRotatedPiece] = useState<RotatedPiece | null>(null);
+  const [isDraggingPiece, setIsDraggingPiece] = useState(false);
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -90,6 +103,10 @@ export default function Index() {
   };
 
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (tool === 'place') {
+      handlePieceMouseDown(e);
+      return;
+    }
     if (tool !== 'select') return;
     const point = getCanvasCoordinates(e);
     setIsDrawing(true);
@@ -98,6 +115,10 @@ export default function Index() {
   };
 
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (tool === 'place') {
+      handlePieceMouseMove(e);
+      return;
+    }
     if (!isDrawing || tool !== 'select') return;
     
     const point = getCanvasCoordinates(e);
@@ -113,6 +134,10 @@ export default function Index() {
   };
 
   const handleMouseUp = () => {
+    if (tool === 'place') {
+      handlePieceMouseUp();
+      return;
+    }
     if (isDrawing) {
       setIsDrawing(false);
       if (selection && selection.width > 10 && selection.height > 10) {
@@ -138,32 +163,90 @@ export default function Index() {
     const tempCtx = tempCanvas.getContext('2d');
     if (!tempCtx) return;
 
-    tempCanvas.width = selection.width;
-    tempCanvas.height = selection.height;
+    const size = Math.max(selection.width, selection.height) * 1.5;
+    tempCanvas.width = size;
+    tempCanvas.height = size;
+    
+    tempCtx.save();
+    tempCtx.translate(size / 2, size / 2);
+    tempCtx.rotate((rotation * Math.PI) / 180);
     tempCtx.drawImage(
       canvas,
       selection.x, selection.y, selection.width, selection.height,
-      0, 0, selection.width, selection.height
+      -selection.width / 2, -selection.height / 2, selection.width, selection.height
     );
+    tempCtx.restore();
 
     ctx.clearRect(selection.x, selection.y, selection.width, selection.height);
 
-    ctx.save();
-    ctx.translate(selection.x + selection.width / 2, selection.y + selection.height / 2);
-    ctx.rotate((rotation * Math.PI) / 180);
-    ctx.drawImage(tempCanvas, -selection.width / 2, -selection.height / 2);
-    ctx.restore();
+    const piece: RotatedPiece = {
+      id: Date.now().toString(),
+      imageData: tempCanvas.toDataURL(),
+      width: size,
+      height: size,
+      x: selection.x + selection.width / 2 - size / 2,
+      y: selection.y + selection.height / 2 - size / 2,
+      rotation
+    };
 
-    setImage(canvas.toDataURL());
-    setSelection(null);
-    setRotation(0);
-    setTool('select');
-    toast.success('Поворот применён!');
+    setRotatedPiece(piece);
+    setTool('place');
+    toast.success('Теперь выбери куда поставить!');
+  };
+
+  const placeRotatedPiece = () => {
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext('2d');
+    if (!canvas || !ctx || !rotatedPiece) return;
+
+    const img = new Image();
+    img.onload = () => {
+      ctx.drawImage(img, rotatedPiece.x, rotatedPiece.y, rotatedPiece.width, rotatedPiece.height);
+      setImage(canvas.toDataURL());
+      setRotatedPiece(null);
+      setSelection(null);
+      setRotation(0);
+      setTool('select');
+      toast.success('Элемент размещён!');
+    };
+    img.src = rotatedPiece.imageData;
+  };
+
+  const handlePieceMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (tool !== 'place' || !rotatedPiece) return;
+    
+    const point = getCanvasCoordinates(e);
+    if (
+      point.x >= rotatedPiece.x && point.x <= rotatedPiece.x + rotatedPiece.width &&
+      point.y >= rotatedPiece.y && point.y <= rotatedPiece.y + rotatedPiece.height
+    ) {
+      setIsDraggingPiece(true);
+      setDragOffset({
+        x: point.x - rotatedPiece.x,
+        y: point.y - rotatedPiece.y
+      });
+    }
+  };
+
+  const handlePieceMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!isDraggingPiece || !rotatedPiece || tool !== 'place') return;
+    
+    const point = getCanvasCoordinates(e);
+    setRotatedPiece({
+      ...rotatedPiece,
+      x: point.x - dragOffset.x,
+      y: point.y - dragOffset.y
+    });
+  };
+
+  const handlePieceMouseUp = () => {
+    setIsDraggingPiece(false);
   };
 
   const clearSelection = () => {
     setSelection(null);
     setRotation(0);
+    setRotatedPiece(null);
     setTool('select');
   };
 
@@ -188,7 +271,7 @@ export default function Index() {
   };
 
   useEffect(() => {
-    if (canvasRef.current && selection) {
+    if (canvasRef.current && (selection || rotatedPiece)) {
       const canvas = canvasRef.current;
       const ctx = canvas.getContext('2d');
       if (!ctx || !imageRef.current) return;
@@ -196,15 +279,33 @@ export default function Index() {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(imageRef.current, 0, 0);
 
-      ctx.strokeStyle = '#9b87f5';
-      ctx.lineWidth = 3;
-      ctx.setLineDash([10, 5]);
-      ctx.strokeRect(selection.x, selection.y, selection.width, selection.height);
+      if (selection && !rotatedPiece) {
+        ctx.strokeStyle = '#9b87f5';
+        ctx.lineWidth = 3;
+        ctx.setLineDash([10, 5]);
+        ctx.strokeRect(selection.x, selection.y, selection.width, selection.height);
 
-      ctx.fillStyle = 'rgba(155, 135, 245, 0.1)';
-      ctx.fillRect(selection.x, selection.y, selection.width, selection.height);
+        ctx.fillStyle = 'rgba(155, 135, 245, 0.1)';
+        ctx.fillRect(selection.x, selection.y, selection.width, selection.height);
+      }
+
+      if (rotatedPiece) {
+        const img = new Image();
+        img.onload = () => {
+          ctx.save();
+          ctx.globalAlpha = 0.9;
+          ctx.drawImage(img, rotatedPiece.x, rotatedPiece.y, rotatedPiece.width, rotatedPiece.height);
+          ctx.restore();
+
+          ctx.strokeStyle = '#0EA5E9';
+          ctx.lineWidth = 3;
+          ctx.setLineDash([5, 5]);
+          ctx.strokeRect(rotatedPiece.x, rotatedPiece.y, rotatedPiece.width, rotatedPiece.height);
+        };
+        img.src = rotatedPiece.imageData;
+      }
     }
-  }, [selection]);
+  }, [selection, rotatedPiece]);
 
   return (
     <div className="min-h-screen bg-background p-6">
@@ -246,7 +347,9 @@ export default function Index() {
                 <div className="relative overflow-auto max-h-[70vh] rounded-lg bg-muted/20">
                   <canvas
                     ref={canvasRef}
-                    className="max-w-full h-auto cursor-crosshair"
+                    className={`max-w-full h-auto ${
+                      tool === 'place' ? 'cursor-move' : 'cursor-crosshair'
+                    }`}
                     onMouseDown={handleMouseDown}
                     onMouseMove={handleMouseMove}
                     onMouseUp={handleMouseUp}
@@ -267,15 +370,19 @@ export default function Index() {
 
           <div className="space-y-6 animate-slide-in">
             <Card className="p-6 glass-effect">
-              <Tabs value={tool} onValueChange={(v) => setTool(v as 'select' | 'rotate')} className="w-full">
-                <TabsList className="grid w-full grid-cols-2 mb-6">
+              <Tabs value={tool} onValueChange={(v) => setTool(v as 'select' | 'rotate' | 'place')} className="w-full">
+                <TabsList className="grid w-full grid-cols-3 mb-6">
                   <TabsTrigger value="select" className="gap-2">
                     <Icon name="MousePointer2" size={18} />
                     Выделить
                   </TabsTrigger>
-                  <TabsTrigger value="rotate" disabled={!selection} className="gap-2">
+                  <TabsTrigger value="rotate" disabled={!selection || tool === 'place'} className="gap-2">
                     <Icon name="RotateCw" size={18} />
                     Повернуть
+                  </TabsTrigger>
+                  <TabsTrigger value="place" disabled={!rotatedPiece} className="gap-2">
+                    <Icon name="Move" size={18} />
+                    Разместить
                   </TabsTrigger>
                 </TabsList>
 
@@ -363,8 +470,8 @@ export default function Index() {
                       className="w-full gradient-purple hover-lift text-primary-foreground"
                       size="lg"
                     >
-                      <Icon name="Check" size={20} className="mr-2" />
-                      Применить поворот
+                      <Icon name="ArrowRight" size={20} className="mr-2" />
+                      Применить и выбрать место
                     </Button>
                     <Button
                       onClick={clearSelection}
@@ -373,6 +480,50 @@ export default function Index() {
                     >
                       <Icon name="X" size={20} className="mr-2" />
                       Отменить выделение
+                    </Button>
+                  </div>
+                </TabsContent>
+
+                <TabsContent value="place" className="space-y-6">
+                  <div className="p-4 rounded-lg bg-secondary/20 border border-secondary/50">
+                    <div className="flex items-start gap-3">
+                      <Icon name="Hand" size={20} className="text-secondary mt-1" />
+                      <div>
+                        <p className="font-medium mb-1">Перетащи элемент:</p>
+                        <ol className="text-sm text-muted-foreground space-y-1 list-decimal list-inside">
+                          <li>Нажми на повёрнутый элемент</li>
+                          <li>Перетащи его в нужное место</li>
+                          <li>Нажми "Зафиксировать"</li>
+                        </ol>
+                      </div>
+                    </div>
+                  </div>
+
+                  {rotatedPiece && (
+                    <div className="p-4 rounded-lg gradient-blue text-white">
+                      <p className="font-medium mb-2">🎯 Элемент готов к размещению</p>
+                      <p className="text-sm opacity-90">
+                        Поворот: {rotatedPiece.rotation}°
+                      </p>
+                    </div>
+                  )}
+
+                  <div className="space-y-3">
+                    <Button
+                      onClick={placeRotatedPiece}
+                      className="w-full gradient-blue hover-lift text-white"
+                      size="lg"
+                    >
+                      <Icon name="Check" size={20} className="mr-2" />
+                      Зафиксировать здесь
+                    </Button>
+                    <Button
+                      onClick={clearSelection}
+                      variant="outline"
+                      className="w-full"
+                    >
+                      <Icon name="X" size={20} className="mr-2" />
+                      Отменить
                     </Button>
                   </div>
                 </TabsContent>
