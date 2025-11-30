@@ -281,13 +281,37 @@ export default function Index() {
 
   const saveImage = () => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    const ctx = canvas?.getContext('2d');
+    if (!canvas || !ctx || !imageRef.current) return;
     
-    const link = document.createElement('a');
-    link.download = `rotated-image-${Date.now()}.png`;
-    link.href = canvas.toDataURL();
-    link.click();
-    toast.success('Изображение сохранено!');
+    const saveCanvas = document.createElement('canvas');
+    const saveCtx = saveCanvas.getContext('2d');
+    if (!saveCtx) return;
+    
+    saveCanvas.width = canvas.width;
+    saveCanvas.height = canvas.height;
+    
+    saveCtx.drawImage(imageRef.current, 0, 0);
+    
+    if (rotatedPiece) {
+      const img = new Image();
+      img.onload = () => {
+        saveCtx.drawImage(img, rotatedPiece.x, rotatedPiece.y, rotatedPiece.width, rotatedPiece.height);
+        
+        const link = document.createElement('a');
+        link.download = `rotated-image-${Date.now()}.png`;
+        link.href = saveCanvas.toDataURL();
+        link.click();
+        toast.success('Изображение сохранено!');
+      };
+      img.src = rotatedPiece.imageData;
+    } else {
+      const link = document.createElement('a');
+      link.download = `rotated-image-${Date.now()}.png`;
+      link.href = saveCanvas.toDataURL();
+      link.click();
+      toast.success('Изображение сохранено!');
+    }
   };
 
   useEffect(() => {
