@@ -159,6 +159,14 @@ export default function Index() {
       rotation
     }]);
 
+    const bgCanvas = document.createElement('canvas');
+    const bgCtx = bgCanvas.getContext('2d');
+    if (!bgCtx) return;
+    
+    bgCanvas.width = canvas.width;
+    bgCanvas.height = canvas.height;
+    bgCtx.drawImage(canvas, 0, 0);
+
     const tempCanvas = document.createElement('canvas');
     const tempCtx = tempCanvas.getContext('2d');
     if (!tempCtx) return;
@@ -177,7 +185,10 @@ export default function Index() {
     );
     tempCtx.restore();
 
-    ctx.clearRect(selection.x, selection.y, selection.width, selection.height);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(bgCanvas, 0, 0);
+    bgCtx.clearRect(selection.x, selection.y, selection.width, selection.height);
+    ctx.drawImage(bgCanvas, 0, 0);
 
     const piece: RotatedPiece = {
       id: Date.now().toString(),
@@ -197,17 +208,26 @@ export default function Index() {
   const placeRotatedPiece = () => {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext('2d');
-    if (!canvas || !ctx || !rotatedPiece) return;
+    if (!canvas || !ctx || !rotatedPiece || !imageRef.current) return;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(imageRef.current, 0, 0);
 
     const img = new Image();
     img.onload = () => {
       ctx.drawImage(img, rotatedPiece.x, rotatedPiece.y, rotatedPiece.width, rotatedPiece.height);
-      setImage(canvas.toDataURL());
-      setRotatedPiece(null);
-      setSelection(null);
-      setRotation(0);
-      setTool('select');
-      toast.success('Элемент размещён!');
+      
+      const newImage = new Image();
+      newImage.onload = () => {
+        imageRef.current = newImage;
+        setImage(canvas.toDataURL());
+        setRotatedPiece(null);
+        setSelection(null);
+        setRotation(0);
+        setTool('select');
+        toast.success('Элемент размещён!');
+      };
+      newImage.src = canvas.toDataURL();
     };
     img.src = rotatedPiece.imageData;
   };
